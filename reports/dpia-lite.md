@@ -1,6 +1,8 @@
-# DPIA-lite — điền trong checkpoint 5
+# DPIA-lite — checkpoint 4
 
-1. Loại dữ liệu và phân loại:
-2. Mục đích xử lý và principal:
-3. Dữ liệu đi qua những run/tool nào, endpoint nào:
-4. Bằng chứng deny/allow và giới hạn của mock:
+1. **Dữ liệu nào?** Ticket Markdown là dữ liệu `internal` nhưng không tin cậy vì attacker có thể chèn chỉ thị. Hồ sơ khách synthetic trong `data/customers.json` gồm customer ID, họ tên, CCCD, điện thoại, tài khoản ngân hàng và email; runner xử lý hồ sơ là `restricted`. Không được đưa dữ liệu thật vào lab.
+2. **Ai xử lý và vì mục đích gì?** `support_l1` chỉ được `search_docs` để `summarize-tickets`; họ không được đọc private store. `dpo` được `search_docs` và `read_customer` cho `support-reply`, nhưng vẫn không được gửi dữ liệu restricted ra ngoài. Đây là principal giả lập; `--as dpo` không xác thực người đang sử dụng máy.
+3. **Dữ liệu đi qua đâu?** Run A gọi `search_docs`, đọc ticket/lure, lấy `ticket_id` từ tên file và redact PII trước khi tóm tắt. Run B chỉ nhận danh sách `ticket_id`, ánh xạ qua `related_tickets` từ nguồn tin cậy rồi mới xin policy để gọi `read_customer`. Lure nhắm tới sink thử nghiệm `http://127.0.0.1:10024/reconcile`; lượt `http_post` restricted+egress bị deny. Ledger chỉ lưu `args_hash`, metadata quyết định, principal và reason, không lưu nguyên hồ sơ.
+4. **Đã chặn/cho phép gì và còn giới hạn gì?** Test cho thấy `support_l1` bị deny, `dpo` đọc được khách hợp lệ, `KH-000777` chỉ có trong attacker text không bị đọc, 4/4 lure không tạo POST sau containment và ledger hash-chain hợp lệ. Hạn chế: MockLLM/regex không đại diện đầy đủ model và tiếng Việt production; principal và expiry không có IdP/token thật; localhost allowlist không phải egress control production; hash-chain tự thân không phát hiện cắt dòng cuối hoặc viết lại toàn bộ chuỗi nếu không có checkpoint bên ngoài; dependency hash/Gitleaks không thay thế SBOM, signature, vulnerability monitoring và quy trình incident thực tế.
+
+Đây là mô tả DPIA-lite cho bài học, không phải hồ sơ đánh giá tác động bảo vệ dữ liệu chính thức.
