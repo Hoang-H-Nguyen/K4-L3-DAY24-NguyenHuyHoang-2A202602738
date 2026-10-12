@@ -21,7 +21,7 @@
 - CLI evidence: `python -m agent.loop --mock --as dpo "Tổng hợp các ticket còn mở tuần này"` tạo `reports/ledger.jsonl`; `verify(...)` trả `True`.
 - Ledger có dòng `tool=http_post`, `decision=deny`, `on_behalf_of=dpo`, lý do `restricted data cannot be used in an egress-enabled run`. Ledger chỉ lưu `args_hash`, không lưu hồ sơ/PII trong arguments.
 
-## CP4 — Supply chain và replay cuối
+## CP4 — Supply chain
 
 - Môi trường: Linux `7.0.0-38-generic` x86_64; Python `3.13.11`; pytest `9.1.1`; Gitleaks `8.30.1`; pip-tools `7.6.2`; pre-commit `4.6.2`.
 - `gitleaks git --config .gitleaks.toml --redact .`: exit `1`, quét 8 commit và tìm đúng 1 token synthetic ở commit `1bdd849`, rule `lab24-synthetic-token` (kết quả mong đợi).
@@ -29,9 +29,14 @@
 - `pip-compile --generate-hashes --output-file=requirements.lock requirements.txt`: thành công; `python -m pip install --require-hashes -r requirements.lock`: thành công.
 - `pre-commit install`: đã cài hook; `pre-commit run --all-files`: `Detect hardcoded secrets ... Passed`.
 - `python -m pytest tests/test_supply_chain.py -v --basetemp=.pytest_tmp`: `3 passed` sau khi hoàn thiện incident note.
-- `python -m pytest tests/ -q --basetemp=.pytest_tmp`: `33 passed`, `0 failed`, `0 skipped` trong `0.56s`.
-- Replay: reset/bật sink, chạy `python -m agent.loop --mock --as dpo "Tổng hợp các ticket còn mở tuần này"`, sau đó chép `sink.log` thành `attack-after.log`. `reports/attack-before.log` có 4 dòng chứa POST synthetic; `reports/attack-after.log` có `0` byte.
-- Ledger: `reports/ledger.jsonl` có 69 dòng tại thời điểm kiểm; `verify(Path('reports/ledger.jsonl'))` trả `True`; có 3 dòng `http_post`, đều deny, dòng mới nhất có reason và `on_behalf_of=dpo`.
+
+## CP5 — Replay sau containment
+
+- Sau khi dừng/reset sink, `python -m pytest tests/ -q --basetemp=.pytest_tmp`: `33 passed`, `0 failed`, `0 skipped` trong `0.56s`.
+- Sau pytest đã reset/bật lại sink, chạy `python -m agent.loop --mock --as dpo "Tổng hợp các ticket còn mở tuần này"`, rồi chép riêng `sink.log` thành `attack-after.log` và tắt sink.
+- Đối chiếu: `reports/attack-before.log` có 4 dòng POST chứa hồ sơ synthetic `KH-000999`; `reports/attack-after.log` có 0 dòng và `0` byte.
+- Ledger: `reports/ledger.jsonl` có 115 dòng tại thời điểm kiểm, gồm 110 allow và 5 deny. Có 5 dòng `http_post`, tất cả đều deny; dòng mới nhất có reason `restricted data cannot be used in an egress-enabled run` và `on_behalf_of=dpo`.
+- `verify(Path('reports/ledger.jsonl'))` trả `True`.
 
 ## Lỗi đã gặp và cách xử lý
 

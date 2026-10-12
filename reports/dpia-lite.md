@@ -1,4 +1,4 @@
-# DPIA-lite — checkpoint 4
+# DPIA-lite — checkpoint 5
 
 1. **Dữ liệu nào?** Ticket Markdown là dữ liệu `internal` nhưng không tin cậy vì attacker có thể chèn chỉ thị. Hồ sơ khách synthetic trong `data/customers.json` gồm customer ID, họ tên, CCCD, điện thoại, tài khoản ngân hàng và email; runner xử lý hồ sơ là `restricted`. Không được đưa dữ liệu thật vào lab.
 2. **Ai xử lý và vì mục đích gì?** `support_l1` chỉ được `search_docs` để `summarize-tickets`; họ không được đọc private store. `dpo` được `search_docs` và `read_customer` cho `support-reply`, nhưng vẫn không được gửi dữ liệu restricted ra ngoài. Đây là principal giả lập; `--as dpo` không xác thực người đang sử dụng máy.
