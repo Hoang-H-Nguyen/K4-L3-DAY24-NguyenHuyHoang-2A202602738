@@ -1,5 +1,7 @@
-# Baseline — điền trong checkpoint 1
+# Baseline — checkpoint 1
 
-1. Agent có identity mỗi run chưa? Dẫn file/hàm:
-2. Ai cho phép `http_post`? Dẫn file/hàm:
-3. Nếu gửi sai PII ra sink, bằng chứng ở đâu? Dẫn file/hàm:
+1. **Mỗi lần chạy baseline đã có `agent_id`/`run_id` và danh tính người dùng để kiểm quyền chưa?** Chưa: `_naive_loop` chỉ nhận `message` và `llm` (`agent/loop.py:27`), còn khi runner vẫn là scaffold thì nhánh fallback gọi `_naive_loop(message, llm)` mà không chuyển `principal_id` hay tạo `agent_id`/`run_id` (`agent/loop.py:69-74`). Vì vậy baseline không có danh tính/ngữ cảnh phiên chạy để kiểm quyền trước khi dùng tool.
+
+2. **Trước `http_post`, có policy nào kiểm mục đích, quyền và loại dữ liệu không? Ai thực sự quyết định gửi?** Không có cổng policy nào: ticket vốn là dữ liệu không tin cậy nhưng baseline đưa toàn văn ticket cho `llm.find_injection()` rồi xử lý chỉ thị bên trong như lệnh (`agent/loop.py:31-39`). Chính kết quả do LLM trả về (`injected.customer_ids` và `injected.target_url`) quyết định đọc hồ sơ và gửi; `http_post` chỉ kiểm URL có trỏ tới localhost đúng cổng hay không (`agent/tools.py:68-84`), không kiểm mục đích, quyền hoặc loại dữ liệu.
+
+3. **Dòng nào tạo body POST, và file nào ghi lại việc sink đã nhận body đó?** Body được tạo ngay tại lời gọi `tools.http_post(injected.target_url, {"records": collected})` (`agent/loop.py:44`), sau khi hồ sơ được lấy bởi `tools.read_customer(customer_id)` (`agent/loop.py:39`). Sink ghi request đã nhận vào `reports/sink.log` (khai báo tại `sink/sink.py:36-37`, ghi body tại `sink/sink.py:43-47`); log này là nguồn bằng chứng để lưu thành `reports/attack-before.log` ở bước red-team.
