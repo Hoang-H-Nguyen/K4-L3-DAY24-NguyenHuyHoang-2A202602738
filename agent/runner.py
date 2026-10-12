@@ -59,7 +59,15 @@ Interface bắt buộc (agent/loop.py import và gọi hàm này nếu tồn t�
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from agent import ledger, tools
+from agent.policy import PolicyContext, check
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 DEFAULT_LEDGER_PATH = REPORTS_DIR / "ledger.jsonl"
@@ -69,6 +77,121 @@ class RunnerScaffoldPending(NotImplementedError):
     """Only the original 3c stub uses this to enable the CP1/CP2 baseline."""
 
 
+def _args_hash(arguments: object) -> str:
+    raw = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _authorize_and_log(*, ledger_path: Path, context: PolicyContext,
+                       agent_id: str, run_id: str, tool: str,
+                       arguments: object) -> bool:
+    allowed, reason = check(context)
+    ledger.append({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "agent_id": agent_id,
+        "run_id": run_id,
+        "tool": tool,
+        "args_hash": _args_hash(arguments),
+        "classification": context.data_classification,
+        "decision": "allow" if allowed else "deny",
+        "reason": reason,
+        "on_behalf_of": context.principal_id,
+        "expires_at": context.expires_at,
+    }, ledger_path)
+    return allowed
+
+
+def _ticket_ids(docs: list[dict]) -> list[int]:
+    ids = set()
+    for doc in docs:
+        match = re.fullmatch(r"ticket-(\d+)(?:b)?\.md", str(doc.get("id", "")))
+        if match:
+            ids.add(int(match.group(1)))
+    return sorted(ids)
+
+
+def _customer_ids_for_tickets(ticket_ids: list[int]) -> list[str]:
+    customers = json.loads(tools.CUSTOMERS_FILE.read_text(encoding="utf-8"))
+    wanted = set(ticket_ids)
+    return sorted(
+        str(customer["customer_id"])
+        for customer in customers
+        if wanted.intersection(customer.get("related_tickets", []))
+    )
+
+
 def handle(message: str, llm, log_dir: Path | None = None,
            principal_id: str = "support_l1") -> str:
-    raise RunnerScaffoldPending("BƯỚC 3c: implement trifecta split")
+    ledger_path = (Path(log_dir) if log_dir is not None else REPORTS_DIR) / "ledger.jsonl"
+    agent_id = "lab24-agent"
+    request_id = uuid.uuid4().hex
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+    scopes = ("search_docs", "read_customer", "http_post")
+
+    run_a = f"{request_id}:run-a"
+    search_context = PolicyContext(
+        data_classification="internal",
+        request_purpose="summarize-tickets",
+        agent_owner=f"{agent_id}/run-a",
+        delegation_depth=0,
+        egress_enabled=False,
+        principal_id=principal_id,
+        requested_tool="search_docs",
+        agent_scopes=scopes,
+        expires_at=expires_at,
+    )
+    if not _authorize_and_log(
+        ledger_path=ledger_path, context=search_context, agent_id=agent_id,
+        run_id=run_a, tool="search_docs", arguments={"query": message},
+    ):
+        return "Yêu cầu tìm ticket bị policy từ chối."
+    docs = tools.search_docs(message)
+
+    combined_text = "\n\n".join(doc["text"] for doc in docs)
+    injection = llm.find_injection(combined_text)
+    trusted_ticket_ids = _ticket_ids(docs)
+
+    run_b = f"{request_id}:run-b"
+    collected = []
+    for customer_id in _customer_ids_for_tickets(trusted_ticket_ids):
+        read_context = PolicyContext(
+            data_classification="restricted",
+            request_purpose="support-reply",
+            agent_owner=f"{agent_id}/run-b",
+            delegation_depth=1,
+            egress_enabled=False,
+            principal_id=principal_id,
+            requested_tool="read_customer",
+            agent_scopes=("read_customer",),
+            parent_scopes=scopes,
+            expires_at=expires_at,
+        )
+        if _authorize_and_log(
+            ledger_path=ledger_path, context=read_context, agent_id=agent_id,
+            run_id=run_b, tool="read_customer", arguments={"customer_id": customer_id},
+        ):
+            collected.append(tools.read_customer(customer_id))
+
+    # Preserve the baseline's observable attempt when a lure is present, but
+    # put the egress tool behind the mandatory restricted+egress deny rule.
+    if injection is not None and collected:
+        egress_context = PolicyContext(
+            data_classification="restricted",
+            request_purpose="support-reply",
+            agent_owner=f"{agent_id}/run-b",
+            delegation_depth=1,
+            egress_enabled=True,
+            principal_id=principal_id,
+            requested_tool="http_post",
+            agent_scopes=("http_post",),
+            parent_scopes=scopes,
+            expires_at=expires_at,
+        )
+        if _authorize_and_log(
+            ledger_path=ledger_path, context=egress_context, agent_id=agent_id,
+            run_id=run_b, tool="http_post",
+            arguments={"url": injection.target_url, "record_count": len(collected)},
+        ):
+            tools.http_post(injection.target_url, {"records": collected})
+
+    return llm.summarize(docs)

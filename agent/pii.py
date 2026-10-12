@@ -30,10 +30,42 @@ set ở tests/vn_pii_testset.jsonl):
 """
 from __future__ import annotations
 
+import re
+
+
+_PATTERNS = (
+    ("EMAIL", re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")),
+    ("VN_BANK_ACCOUNT", re.compile(
+        r"(?i)(?:\bSTK\b|số\s+tài\s+khoản)\s*(?:[:=-]\s*)?(?P<value>\d{8,16})"
+    )),
+    ("VN_CCCD", re.compile(
+        r"(?i)\bCCCD\b\s*(?:của\s+[^\d:]{0,50})?(?:[:=-]\s*)?(?P<value>\d{12})(?!\d)"
+    )),
+    ("VN_PHONE", re.compile(r"(?<!\d)0(?:[ -]?\d){9,10}(?!\d)")),
+)
+
 
 def detect(text: str) -> list[dict]:
-    raise NotImplementedError("BƯỚC 3a: implement PII detection")
+    candidates: list[dict] = []
+    for entity_type, pattern in _PATTERNS:
+        for match in pattern.finditer(text):
+            start, end = match.span("value") if "value" in pattern.groupindex else match.span()
+            candidates.append({"type": entity_type, "start": start, "end": end})
+
+    # Contextual bank/CCCD matches take precedence over a numeric sequence
+    # that also happens to look like a phone number.
+    priority = {"EMAIL": 0, "VN_BANK_ACCOUNT": 1, "VN_CCCD": 2, "VN_PHONE": 3}
+    accepted: list[dict] = []
+    for item in sorted(candidates, key=lambda e: (priority[e["type"]], e["start"], e["end"])):
+        if any(item["start"] < old["end"] and old["start"] < item["end"] for old in accepted):
+            continue
+        accepted.append(item)
+    return sorted(accepted, key=lambda e: (e["start"], e["end"]))
 
 
 def redact(text: str) -> str:
-    raise NotImplementedError("BƯỚC 3a: implement PII redaction")
+    result = text
+    for entity in reversed(detect(text)):
+        replacement = f"[REDACTED_{entity['type']}]"
+        result = result[:entity["start"]] + replacement + result[entity["end"]:]
+    return result
