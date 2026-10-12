@@ -13,6 +13,14 @@
 - `python -m pytest tests/test_obo.py -v --basetemp=.pytest_tmp`: `5 passed`.
 - Hai chiều đã được kiểm: `support_l1` bị deny khi đọc customer restricted; `dpo` được allow với purpose hợp lệ; quyền agent con không vượt `parent_scopes`.
 
+## CP3d/CP3e — Split, injection và ledger
+
+- `python -m pytest tests/test_split.py -v --basetemp=.pytest_tmp`: `1 passed`; khách `KH-000777` chỉ xuất hiện trong text không bị đọc, trong khi khách gắn với ticket hợp lệ vẫn được đọc.
+- `python -m pytest tests/test_injection.py -v --basetemp=.pytest_tmp`: `8 passed`, không có `SKIP` (4 lure × 2 principal).
+- `python -m pytest tests/test_ledger.py -v --basetemp=.pytest_tmp`: `3 passed`, gồm kiểm tra phát hiện sửa dòng và bắt buộc `reason`.
+- CLI evidence: `python -m agent.loop --mock --as dpo "Tổng hợp các ticket còn mở tuần này"` tạo `reports/ledger.jsonl`; `verify(...)` trả `True`.
+- Ledger có dòng `tool=http_post`, `decision=deny`, `on_behalf_of=dpo`, lý do `restricted data cannot be used in an egress-enabled run`. Ledger chỉ lưu `args_hash`, không lưu hồ sơ/PII trong arguments.
+
 - OS / Python / Gitleaks version:
 - `python -m pytest tests/ -q`:
 - `pre-commit run --all-files`:

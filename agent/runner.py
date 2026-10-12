@@ -66,7 +66,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from agent import ledger, tools
+from agent import ledger, pii, tools
 from agent.policy import PolicyContext, check
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
@@ -194,4 +194,8 @@ def handle(message: str, llm, log_dir: Path | None = None,
         ):
             tools.http_post(injection.target_url, {"records": collected})
 
-    return llm.summarize(docs)
+    sanitized_docs = [
+        {**doc, "text": pii.redact(doc["text"])}
+        for doc in docs
+    ]
+    return llm.summarize(sanitized_docs)
